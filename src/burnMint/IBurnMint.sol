@@ -18,6 +18,26 @@ interface IBurnMint {
         bytes32 peerAddress;
     }
 
+    /// @dev Message emitted and received by the nttManager contract.
+    ///      The wire format is as follows:
+    ///      - sender - 32 bytes
+    ///      - amount - 32 bytes
+    ///      - sourceToken - 32 bytes
+    ///      - to - 32 bytes
+    ///      - toChain - 2 bytes
+    struct BurnMintMessage {
+        /// @notice original message sender address.
+        bytes32 sender;
+        /// @notice Amount being transferred (big-endian u64 and u8 for decimals)
+        uint256 amount;
+        /// @notice Source chain token address.
+        bytes32 sourceToken;
+        /// @notice Address of the recipient.
+        bytes32 to;
+        /// @notice Chain ID of the recipient
+        uint16 toChain;
+    }
+
     error ZeroAmount();
     error InvalidRecipient();
     error DeliveryPaymentTooLow(uint256 requiredPayment, uint256 providedPayment);

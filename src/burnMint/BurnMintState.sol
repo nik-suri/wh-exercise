@@ -3,9 +3,12 @@ pragma solidity ^0.8.13;
 
 import "wormhole-solidity-sdk/interfaces/IWormhole.sol";
 import "wormhole-solidity-sdk/WormholeRelayerSDK.sol";
+import "wormhole-solidity-sdk/libraries/BytesParsing.sol";
 import "src/burnMint/IBurnMint.sol";
 
 abstract contract BurnMintState is IBurnMint {
+    using BytesParsing for bytes;
+
     constructor(
         address _admin,
         address _token,
@@ -141,5 +144,20 @@ abstract contract BurnMintState is IBurnMint {
             revert CallerNotRelayer(msg.sender);
         }
         _;
+    }
+
+    // =============== ENCODING/DECODING ===============================================
+
+    function _encodeBurnMintMessage(BurnMintMessage memory m) public pure returns (bytes memory encoded) {
+        return abi.encodePacked(m.sender, m.amount, m.sourceToken, m.to, m.toChain);
+    }
+
+    function _parseBurnMintMessage(bytes memory encoded) public pure returns (BurnMintMessage memory burnMintMessage) {
+        uint256 offset = 0;
+        (burnMintMessage.sender, offset) = encoded.asBytes32Unchecked(offset);
+        (burnMintMessage.amount, offset) = encoded.asUint256Unchecked(offset);
+        (burnMintMessage.sourceToken, offset) = encoded.asBytes32Unchecked(offset);
+        (burnMintMessage.to, offset) = encoded.asBytes32Unchecked(offset);
+        (burnMintMessage.toChain, offset) = encoded.asUint16Unchecked(offset);
     }
 }

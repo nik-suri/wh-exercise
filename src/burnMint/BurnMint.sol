@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "wormhole-solidity-sdk/libraries/BytesParsing.sol";
 import "wormhole-solidity-sdk/WormholeRelayerSDK.sol";
 
 import "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
@@ -14,7 +13,6 @@ import "src/burnMint/BurnMintState.sol";
 // integrates with wormhole for burn/mint token transfers
 contract BurnMint is BurnMintState, IWormholeReceiver {
     using SafeERC20 for IERC20;
-    using BytesParsing for bytes;
 
     constructor(
         address _admin,
@@ -49,37 +47,10 @@ contract BurnMint is BurnMintState, IWormholeReceiver {
         }
 
         // use transferFrom to pull tokens from the user
-        // query own token balance before transfer
-        uint256 balanceBefore = _getTokenBalanceOf(token, address(this));
-
-        // transfer tokens
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
 
-        // query own token balance after transfer
-        uint256 balanceAfter = _getTokenBalanceOf(token, address(this));
-
-        // correct amount for potential transfer fees
-        amount = balanceAfter - balanceBefore;
-
         // burn tokens
-        // NOTE: We don't account for burn fees in this code path.
-        // We verify that the user's change in balance is equal to the amount that's burned.
-        // Accounting for burn fees can be non-trivial, since there
-        // is no standard way to account for the fee if the fee amount
-        // is taken out of the burn amount.
-        // For example, if there's a fee of 1 which is taken out of the
-        // amount, then burning 20 tokens would result in a transfer of only 19 tokens.
-        // However, the difference in the user's balance would only show 20.
-        // Since there is no standard way to query for burn fee amounts with burnable tokens,
-        // and NTT would be used on a per-token basis, implementing this functionality
-        // is left to integrating projects who may need to account for burn fees on their tokens.
         ERC20Burnable(token).burn(amount);
-
-        // tokens held by the contract after the operation should be the same as before
-        uint256 balanceAfterBurn = _getTokenBalanceOf(token, address(this));
-        if (balanceBefore != balanceAfterBurn) {
-            revert BurnAmountDifferentThanBalanceDiff(balanceBefore, balanceAfterBurn);
-        }
 
         // format message
         // construct the NttManagerMessage payload
@@ -87,14 +58,6 @@ contract BurnMint is BurnMintState, IWormholeReceiver {
             BurnMintMessage(toWormholeFormat(msg.sender), amount, toWormholeFormat(token), recipient, recipientChain)
         );
 
-        // send via wormhole standard relaying
-        // uint64 sequence = wormholeRelayer.sendPayloadToEvm{value: cost}(
-        //     recipientChain,
-        //     fromWormholeFormat(getPeer(recipientChain).peerAddress),
-        //     encodedPayload,
-        //     0, // receiverValue
-        //     gasLimit
-        // );
         uint64 sequence = wormholeRelayer.sendToEvm{value: cost}(
             recipientChain,
             fromWormholeFormat(getPeer(recipientChain).peerAddress),
@@ -160,49 +123,5 @@ contract BurnMint is BurnMintState, IWormholeReceiver {
 
         // mint tokens to recipient
         IMintingToken(token).mint(recipient, m.amount);
-    }
-
-    function _getTokenBalanceOf(address tokenAddr, address accountAddr) internal view returns (uint256) {
-        (bool success, bytes memory queriedBalance) =
-            tokenAddr.staticcall(abi.encodeWithSelector(IERC20.balanceOf.selector, accountAddr));
-
-        if (!success) {
-            revert StaticcallFailed();
-        }
-
-        return abi.decode(queriedBalance, (uint256));
-    }
-
-    /// @dev Message emitted and received by the nttManager contract.
-    ///      The wire format is as follows:
-    ///      - sender - 32 bytes
-    ///      - amount - 32 bytes
-    ///      - sourceToken - 32 bytes
-    ///      - to - 32 bytes
-    ///      - toChain - 2 bytes
-    struct BurnMintMessage {
-        /// @notice original message sender address.
-        bytes32 sender;
-        /// @notice Amount being transferred (big-endian u64 and u8 for decimals)
-        uint256 amount;
-        /// @notice Source chain token address.
-        bytes32 sourceToken;
-        /// @notice Address of the recipient.
-        bytes32 to;
-        /// @notice Chain ID of the recipient
-        uint16 toChain;
-    }
-
-    function _encodeBurnMintMessage(BurnMintMessage memory m) public pure returns (bytes memory encoded) {
-        return abi.encodePacked(m.sender, m.amount, m.sourceToken, m.to, m.toChain);
-    }
-
-    function _parseBurnMintMessage(bytes memory encoded) public pure returns (BurnMintMessage memory burnMintMessage) {
-        uint256 offset = 0;
-        (burnMintMessage.sender, offset) = encoded.asBytes32Unchecked(offset);
-        (burnMintMessage.amount, offset) = encoded.asUint256Unchecked(offset);
-        (burnMintMessage.sourceToken, offset) = encoded.asBytes32Unchecked(offset);
-        (burnMintMessage.to, offset) = encoded.asBytes32Unchecked(offset);
-        (burnMintMessage.toChain, offset) = encoded.asUint16Unchecked(offset);
     }
 }
